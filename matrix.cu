@@ -174,27 +174,3 @@ Matrix MatrixMultiplicationCUBLAS(const cublasHandle_t &handle, const Matrix &m1
     cudaFree(dev_b);
     return result;
 }
-
-__global__ void add_kernel(const int *A, const int *B, int *C) {
-    C[threadIdx.x] = A[threadIdx.x] + B[threadIdx.x];
-}
-
-int main() {
-    int A[] = {1, 2, 3, 4, 5};
-    int B[] = {10, 20, 30, 40, 50};
-    int C[5];
-    int *dev_A, *dev_B, *dev_C;
-    cudaMalloc(&dev_A, sizeof(float) * 5);
-    cudaMalloc(&dev_B, sizeof(float) * 5);
-    cudaMalloc(&dev_C, sizeof(float) * 5);
-    cudaMemcpy(dev_A, A, sizeof(float) * 5, cudaMemcpyHostToDevice);
-    cudaMemcpy(dev_B, B, sizeof(float) * 5, cudaMemcpyHostToDevice);
-    add_kernel<<<1, 5>>>(dev_A, dev_B, dev_C);
-    cudaMemcpy(C, dev_C, sizeof(float) * 5, cudaMemcpyDeviceToHost);
-    cudaFree(dev_A);
-    cudaFree(dev_B);
-    cudaFree(dev_C);
-    for (int i = 0; i < 5; i++) {
-        printf("%d, ", C[i]);
-    }
-}

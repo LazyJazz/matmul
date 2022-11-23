@@ -30,6 +30,6 @@ int main() {
         m6 = MatrixMultiplicationCUBLAS(handle, m1, m2);
     }
     cublasDestroy(handle);
-    std::cout << MaxDifference(m6, m4) << std::endl;
-    std::cout << MaxDifference(m6, m5) << std::endl;
+    std::cout << "Maximum difference (CUBLAS, Brute Force): " << MaxDifference(m6, m4) << std::endl;
+    std::cout << "Maximum difference (CUBLAS, Shared Memory): " << MaxDifference(m6, m5) << std::endl;
 }
