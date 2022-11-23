@@ -1,12 +1,13 @@
 #include "iostream"
 #include "matrix.h"
-#include "Timer.h"
+#include "timer.h"
 
 #define N 8192
 #define M 8192
 #define L 8192
 
 int main() {
+
     Matrix m1(N, M), m2(M, L), m3, m4, m5, m6;
     m1.Random();
     m2.Random();

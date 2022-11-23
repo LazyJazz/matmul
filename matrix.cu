@@ -26,7 +26,6 @@ Matrix Matrix::operator*(const Matrix &mat) const {
     auto result = Matrix(n_, mat.m_);
     auto *buffer = new float[m_];
     for (int i = 0; i < n_; i++) {
-        printf("%d\n", i);
         for (int k = 0; k < m_; k++) {
             buffer[k] = operator()(k, i);
         }
@@ -66,9 +65,12 @@ Matrix MatrixMultiplication(const Matrix &m1, const Matrix &m2) {
     cudaMalloc(&dev_res, sizeof(float) * m1.n_ * m2.m_);
     cudaMalloc(&dev_a, sizeof(float) * m1.n_ * m1.m_);
     cudaMalloc(&dev_b, sizeof(float) * m2.n_ * m2.m_);
-    cudaMemcpy(dev_a, m1.GetBuffer(), sizeof(float)  * m1.n_ * m1.m_, cudaMemcpyHostToDevice);
-    cudaMemcpy(dev_b, m2.GetBuffer(), sizeof(float)  * m2.n_ * m2.m_, cudaMemcpyHostToDevice);
-    cuda_kernel_matrix_multiplication<<<dim3((m1.n_ + 15) / 16, (m2.m_ + 15) / 16,1), dim3(16,16,1)>>>(dev_res, dev_a, dev_b, m1.n_, m1.m_, m2.m_);
+    cudaMemcpy(dev_a, m1.GetBuffer(), sizeof(float) * m1.n_ * m1.m_, cudaMemcpyHostToDevice);
+    cudaMemcpy(dev_b, m2.GetBuffer(), sizeof(float) * m2.n_ * m2.m_, cudaMemcpyHostToDevice);
+    cuda_kernel_matrix_multiplication<<<dim3((m1.n_ + 15) / 16, (m2.m_ + 15) / 16, 1), dim3(16, 16, 1)>>>(dev_res,
+                                                                                                          dev_a, dev_b,
+                                                                                                          m1.n_, m1.m_,
+                                                                                                          m2.m_);
     cudaMemcpy(result.GetBuffer(), dev_res, sizeof(float) * m1.n_ * m2.m_, cudaMemcpyDeviceToHost);
     cudaFree(dev_res);
     cudaFree(dev_a);
@@ -76,19 +78,20 @@ Matrix MatrixMultiplication(const Matrix &m1, const Matrix &m2) {
     return result;
 }
 
-#define BUFFER_LENGTH 384
+#define BUFFER_LENGTH 352
 
-__global__ void cuda_kernel_matrix_multiplication_shared(float *dev_res, float *dev_a, float *dev_b, int n, int m, int l) {
+__global__ void
+cuda_kernel_matrix_multiplication_shared(float *dev_res, float *dev_a, float *dev_b, int n, int m, int l) {
     uint32_t idy = blockIdx.x * blockDim.x + threadIdx.x;
-    __shared__ float a_shared_buffer[16][BUFFER_LENGTH];
-    __shared__ float b_shared_buffer[16][BUFFER_LENGTH];
+    __shared__ float a_shared_buffer[BUFFER_LENGTH][17];
+    __shared__ float b_shared_buffer[BUFFER_LENGTH][17];
     float ans;
     for (int k = 0; k < m; k += BUFFER_LENGTH) {
         for (int i = 0; i < BUFFER_LENGTH; i += 16) {
             if (k + i + threadIdx.y < m && idy < n) {
-                a_shared_buffer[threadIdx.x][i + threadIdx.y] = dev_a[(k + i + threadIdx.y) * n + idy];
+                a_shared_buffer[i + threadIdx.y][threadIdx.x] = dev_a[(k + i + threadIdx.y) * n + idy];
             } else {
-                a_shared_buffer[threadIdx.x][i + threadIdx.y] = 0.0f;
+                a_shared_buffer[i + threadIdx.y][threadIdx.x] = 0.0f;
             }
         }
         __syncthreads();
@@ -96,16 +99,16 @@ __global__ void cuda_kernel_matrix_multiplication_shared(float *dev_res, float *
             int idx = i + threadIdx.y;
             for (int j = 0; j < BUFFER_LENGTH; j += 16) {
                 if (k + j + threadIdx.x < m && idx < l) {
-                    b_shared_buffer[threadIdx.y][j + threadIdx.x] = dev_b[idx * m + (k + j + threadIdx.x)];
+                    b_shared_buffer[j + threadIdx.x][threadIdx.y] = dev_b[idx * m + (k + j + threadIdx.x)];
                 } else {
-                    b_shared_buffer[threadIdx.y][j + threadIdx.x] = 0.0f;
+                    b_shared_buffer[j + threadIdx.x][threadIdx.y] = 0.0f;
                 }
             }
             __syncthreads();
             if (idx < l && idy < n) {
                 ans = 0.0f;
                 for (int j = 0; j < BUFFER_LENGTH && k + j < m; j++) {
-                    ans += a_shared_buffer[threadIdx.x][j] * b_shared_buffer[threadIdx.y][j];
+                    ans += a_shared_buffer[j][threadIdx.x] * b_shared_buffer[j][threadIdx.y];
                 }
                 __syncthreads();
                 dev_res[idx * n + idy] += ans;
@@ -113,7 +116,6 @@ __global__ void cuda_kernel_matrix_multiplication_shared(float *dev_res, float *
         }
     }
 }
-
 
 Matrix MatrixMultiplicationShared(const Matrix &m1, const Matrix &m2) {
     auto result = Matrix(m1.n_, m2.m_);
@@ -123,10 +125,11 @@ Matrix MatrixMultiplicationShared(const Matrix &m1, const Matrix &m2) {
     cudaMalloc(&dev_res, sizeof(float) * m1.n_ * m2.m_);
     cudaMalloc(&dev_a, sizeof(float) * m1.n_ * m1.m_);
     cudaMalloc(&dev_b, sizeof(float) * m2.n_ * m2.m_);
-    cudaMemcpy(dev_a, m1.GetBuffer(), sizeof(float)  * m1.n_ * m1.m_, cudaMemcpyHostToDevice);
-    cudaMemcpy(dev_b, m2.GetBuffer(), sizeof(float)  * m2.n_ * m2.m_, cudaMemcpyHostToDevice);
+    cudaMemcpy(dev_a, m1.GetBuffer(), sizeof(float) * m1.n_ * m1.m_, cudaMemcpyHostToDevice);
+    cudaMemcpy(dev_b, m2.GetBuffer(), sizeof(float) * m2.n_ * m2.m_, cudaMemcpyHostToDevice);
     cudaMemset(dev_res, 0, sizeof(float) * m1.n_ * m2.m_);
-    cuda_kernel_matrix_multiplication_shared<<<dim3((m1.n_ + 15) / 16, 1,1), dim3(16,16,1)>>>(dev_res, dev_a, dev_b, m1.n_, m1.m_, m2.m_);
+    cuda_kernel_matrix_multiplication_shared<<<dim3((m1.n_ + 15) / 16, 1, 1), dim3(16, 16, 1)>>>(dev_res, dev_a, dev_b,
+                                                                                                 m1.n_, m1.m_, m2.m_);
     cudaMemcpy(result.GetBuffer(), dev_res, sizeof(float) * m1.n_ * m2.m_, cudaMemcpyDeviceToHost);
     cudaFree(dev_res);
     cudaFree(dev_a);
@@ -158,15 +161,40 @@ Matrix MatrixMultiplicationCUBLAS(const cublasHandle_t &handle, const Matrix &m1
     cudaMalloc(&dev_res, sizeof(float) * m1.n_ * m2.m_);
     cudaMalloc(&dev_a, sizeof(float) * m1.n_ * m1.m_);
     cudaMalloc(&dev_b, sizeof(float) * m2.n_ * m2.m_);
-    cudaMemcpy(dev_a, m1.GetBuffer(), sizeof(float)  * m1.n_ * m1.m_, cudaMemcpyHostToDevice);
-    cudaMemcpy(dev_b, m2.GetBuffer(), sizeof(float)  * m2.n_ * m2.m_, cudaMemcpyHostToDevice);
+    cudaMemcpy(dev_a, m1.GetBuffer(), sizeof(float) * m1.n_ * m1.m_, cudaMemcpyHostToDevice);
+    cudaMemcpy(dev_b, m2.GetBuffer(), sizeof(float) * m2.n_ * m2.m_, cudaMemcpyHostToDevice);
     cudaMemset(dev_res, 0, sizeof(float) * m1.n_ * m2.m_);
     float alpha = 1.0f;
     float beta = 0.0f;
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, m1.n_, m2.m_, m1.m_, &alpha, dev_a, m1.n_, dev_b, m2.n_, &beta, dev_res, m1.n_);
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, m1.n_, m2.m_, m1.m_, &alpha, dev_a, m1.n_, dev_b, m2.n_, &beta,
+                dev_res, m1.n_);
     cudaMemcpy(result.GetBuffer(), dev_res, sizeof(float) * m1.n_ * m2.m_, cudaMemcpyDeviceToHost);
     cudaFree(dev_res);
     cudaFree(dev_a);
     cudaFree(dev_b);
     return result;
+}
+
+__global__ void add_kernel(const int *A, const int *B, int *C) {
+    C[threadIdx.x] = A[threadIdx.x] + B[threadIdx.x];
+}
+
+int main() {
+    int A[] = {1, 2, 3, 4, 5};
+    int B[] = {10, 20, 30, 40, 50};
+    int C[5];
+    int *dev_A, *dev_B, *dev_C;
+    cudaMalloc(&dev_A, sizeof(float) * 5);
+    cudaMalloc(&dev_B, sizeof(float) * 5);
+    cudaMalloc(&dev_C, sizeof(float) * 5);
+    cudaMemcpy(dev_A, A, sizeof(float) * 5, cudaMemcpyHostToDevice);
+    cudaMemcpy(dev_B, B, sizeof(float) * 5, cudaMemcpyHostToDevice);
+    add_kernel<<<1, 5>>>(dev_A, dev_B, dev_C);
+    cudaMemcpy(C, dev_C, sizeof(float) * 5, cudaMemcpyDeviceToHost);
+    cudaFree(dev_A);
+    cudaFree(dev_B);
+    cudaFree(dev_C);
+    for (int i = 0; i < 5; i++) {
+        printf("%d, ", C[i]);
+    }
 }
